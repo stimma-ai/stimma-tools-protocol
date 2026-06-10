@@ -1,6 +1,6 @@
 # Stimma Tools Protocol (STP)
 
-**Version:** 1.0-draft4
+**Version:** 1.0-draft5
 **Status:** Draft
 
 A JSON-RPC 2.0 protocol for exposing image/video generation tools to applications, designed to make
@@ -264,11 +264,29 @@ Registration fields:
 |-------|----------|-------------|
 | `stp_version` | yes | Protocol version this provider speaks (e.g. `"1.0"`). Distinct from the provider software version. See [Versioning](#versioning--capabilities). |
 | `provider_id` | yes | Stable identifier for this provider. Unique within a host's configuration; forms the first half of a tool's global address (`{provider_id}:{tool_id}`). |
-| `provider_name` | yes | Human-readable display name (may be user-customized). |
-| `server` | no | Software identifier in HTTP `Server`-header style: `Name/Version` (e.g. `"ComfyUI-Stimma/1.2.3"`). For telemetry and debugging only; the provider is the server, so this is the `Server` analog (not `User-Agent`). Implementor-filled. |
+| `provider_name` | yes | Human-readable display name (may be user-customized). Display only. |
+| `server` | yes | The provider software's product identity, `Name/Version` (e.g. `"ComfyUI-Stimma/1.2.3"`). Set by the provider implementation, never user-configured. See [`server` format](#server-format) below. |
 | `max_concurrent` | no | Provider-wide concurrency limit (default `1`). |
 | `asset_endpoint` | no | Where the host uploads/downloads assets (see below). Omitted for stdio. |
 | `capabilities` | no | Optional features this provider supports beyond the baseline. A provider that omits `capabilities` supports only the baseline. See [Versioning](#versioning--capabilities). |
+
+#### `server` format
+
+`server` identifies the provider *software*, in HTTP `Server`-header style (the provider is the
+server, so this is the `Server` analog, not `User-Agent`). It MUST be exactly `Name/Version`:
+
+- `Name` — the product name of the provider implementation (e.g. `ComfyUI-Stimma`). Fixed by the
+  implementation; MUST NOT be user-configurable. User-facing naming belongs in `provider_name`.
+- `Version` — the provider software's own version: dot-separated numbers (e.g. `1.2.3`),
+  optionally followed by a `-suffix` (e.g. `1.2.0-beta1`). Distinct from `stp_version`.
+
+Because `server` is fixed by the software and carries no user content, hosts use it for telemetry
+and debugging and MAY share it with their telemetry backends; everything else in the registration
+(ids, names, labels) is potentially user content and is not for telemetry.
+
+*Compatibility:* providers built against earlier revisions of this spec may omit `server` or send
+a value that doesn't parse as `Name/Version`. Hosts MUST still accept such registrations and
+treat the product identity as unknown.
 
 The `asset_endpoint` tells the host where to upload/download assets:
 - **Relative path** (e.g., `/assets`): Use same origin as WebSocket connection
@@ -677,6 +695,7 @@ The `metadata` object is freeform. The following keys are standard; hosts SHOULD
 | `description` | `string` | Tool description shown in the All Tools page. Used as `subtitle` fallback if `subtitle` is not set at the top level. |
 | `display_price` | `string` | Price string shown in tool cards (e.g., `"$0.03/megapixel"`, `"$0.05/second"`). |
 | `badges` | `string[]` | Badge labels shown as pills in tool cards. Use standard labels for consistent styling (see below). |
+| `model_family` | `string` | The model family the tool is built on (e.g. `"flux"`, `"sdxl"`). Advisory; consumers validate against their own classification rules. |
 
 **Standard badge labels:**
 
