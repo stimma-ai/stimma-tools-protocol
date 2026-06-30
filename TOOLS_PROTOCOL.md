@@ -630,6 +630,17 @@ interface ToolDescriptor {
   // Longer description (also shown in tool cards, used as subtitle fallback)
   description?: string;
 
+  // The lab/company that made the model the tool runs (optional).
+  // Distinct from `provider` (where the tool runs/comes from).
+  // Examples: "black-forest-labs", "openai", "alibaba"
+  model_vendor?: string;
+
+  // The specific model the tool runs (optional). Granular and tight to
+  // parameters — the unit across which settings, LoRAs, and cross-compat hold.
+  // Distinct from `provider` (where the tool runs/comes from).
+  // Examples: "flux2-klein-9b", "qwen-image-2512"
+  model?: string;
+
   // Provider-specific metadata (optional, see Metadata Fields below)
   metadata?: Record<string, any>;
 }
@@ -667,6 +678,7 @@ interface LayoutParam {
 | `text-to-video` | Generate Video | Create video from text prompt |
 | `video-stitch` | Video Stitch | Combine video segments |
 | `video-extend` | Video Extend | Extend video duration |
+| `lip-sync` | Lip Sync | Drive/resync video from an audio track (audio-conditioned) |
 | `upscale-image` | Upscale Image | Increase image resolution |
 | `upscale-video` | Upscale Video | Increase video resolution |
 | `inpaint-image` | Inpaint | Fill masked region of image |
@@ -695,7 +707,8 @@ The `metadata` object is freeform. The following keys are standard; hosts SHOULD
 | `description` | `string` | Tool description shown in the All Tools page. Used as `subtitle` fallback if `subtitle` is not set at the top level. |
 | `display_price` | `string` | Price string shown in tool cards (e.g., `"$0.03/megapixel"`, `"$0.05/second"`). |
 | `badges` | `string[]` | Badge labels shown as pills in tool cards. Use standard labels for consistent styling (see below). |
-| `model_family` | `string` | The model family the tool is built on (e.g. `"flux"`, `"sdxl"`). Advisory; consumers validate against their own classification rules. |
+
+> **Note:** The former advisory `model_family` metadata key has been removed. Use the top-level `model` field (and `model_vendor`) on the descriptor instead.
 
 **Standard badge labels:**
 
@@ -748,6 +761,7 @@ Every schema property MAY declare an `x-control` hint specifying which UI contro
 | `image_picker` | `array` of strings | Image upload/selection | `x-min-items`, `x-max-items`, `x-controlnet` |
 | `video_picker` | `array` of strings | Video upload/selection | `x-min-items`, `x-max-items` |
 | `video_frame_picker` | `array` of strings | Start/end frame picker for image-to-video | `x-min-items`, `x-max-items` |
+| `audio_picker` | `array` of strings | Audio upload/selection (audio-conditioned tools, e.g. lip-sync) | `x-min-items`, `x-max-items` |
 | `mask_editor` | `string` | Mask painting editor | `x-source-field`, `x-mask-format` |
 | `resolution` | `integer` | Linked resolution field (see Resolution Picker) | `x-paired-with`, `x-step` |
 | `upscale_resolution` | `number` or `integer` | Upscale scale factor / target resolution picker | `x-step` |
@@ -1031,6 +1045,7 @@ use any names.
 | `prompt` | Rich text editor (`prompt_editor`) | The `description` property is used as placeholder text |
 | `input_images` | Media picker with drag-drop | Use `x-min-items`/`x-max-items` for count constraints |
 | `input_videos` | Video picker | Same as above |
+| `input_audios` | Audio picker | Audio-conditioned tools (lip-sync); `x-min-items`/`x-max-items` for count |
 | `mask` | Mask painting editor | Requires `x-source-field` pointing to the source image |
 | `width` + `height` | Linked resolution picker | See Resolution Picker section |
 | `aspect_ratio` | Aspect ratio selector | When an `enum` is provided (e.g. `["1:1", "16:9"]`), a client SHOULD show a visual ratio picker. |
