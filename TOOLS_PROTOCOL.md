@@ -1,6 +1,6 @@
 # Stimma Tools Protocol (STP)
 
-**Version:** 1.0-draft5
+**Version:** 1.0-draft6
 **Status:** Draft
 
 A JSON-RPC 2.0 protocol for exposing image/video generation tools to applications, designed to make
@@ -654,6 +654,10 @@ interface LayoutSection {
 
   // Whether the section starts collapsed (default: false)
   collapsed?: boolean;
+
+  // Hide the entire section (including its header) when this expression
+  // evaluates true. Same grammar as x-constraints — see Parameter Constraints.
+  hidden_when?: ConstraintExpr;
 }
 
 interface LayoutParam {
@@ -778,8 +782,9 @@ If a client encounters an unknown `x-control` value, it SHOULD fall back to a ge
 | `x-step` | Sliders, resolution | `number` | Step value for numeric inputs |
 | `x-enum-labels` | Dropdowns | `Record<string, string>` | Maps enum values to display labels |
 | `x-format` | Any property | `string` | Display formatting hint (e.g., `"filename"`, `"percent"`) |
-| `x-visible-when` | Any property | `{ param, value }` | Conditional visibility based on another parameter |
+| `x-visible-when` | Any property | `{ param, value }` | Conditional visibility based on another parameter. Equivalent to a single `x-constraints` entry (`effect: "hide"`, an `equals` condition) — new tools SHOULD prefer `x-constraints` (see below). |
 | `x-hidden` | Any property | `boolean` | Hide from UI entirely |
+| `x-constraints` | Any property | `Constraint[]` | Declarative rules disabling or hiding this param based on other params' values, with AND/OR/NOT composition (see Parameter Constraints below) |
 | `x-source-field` | `mask_editor` | `string` | Which input field contains the source image |
 | `x-mask-format` | `mask_editor` | `string` | Output format for mask images (see below) |
 | `x-controlnet` | `image_picker` | `string[]` | ControlNet preprocessor IDs (see below) |
@@ -790,6 +795,85 @@ If a client encounters an unknown `x-control` value, it SHOULD fall back to a ge
 | `x-min-items` | Arrays | `number` | Minimum items for media inputs |
 | `x-max-items` | Arrays | `number` | Maximum items for media inputs |
 | `x-accept-upload` | `string` with `enum` | `object` | Declares file upload capability (see Tool File Uploads) |
+| `x-accept-media` | Media inputs | `object` | Declares the MIME types a media input accepts (see Media Input Formats) |
+
+**Parameter Constraints (`x-constraints`):**
+
+Tool parameters are frequently interdependent — a provider's underlying model may
+reject a parameter combination outright, or a parameter may simply be meaningless
+in some mode. `x-constraints` lets a tool descriptor declare this machine-readably
+instead of only as prose in a `description`.
+
+```ts
+type ConstraintCondition =
+  | { param: string; op: "equals" | "not_equals"; value: any }
+  | { param: string; op: "truthy" | "falsy" | "empty" | "not_empty" }
+  | { param: string; op: "in" | "not_in"; value: any[] }
+
+type ConstraintExpr =
+  | ConstraintCondition
+  | { all: ConstraintExpr[] }   // AND
+  | { any: ConstraintExpr[] }   // OR
+  | { not: ConstraintExpr }     // NOT
+
+interface Constraint {
+  when: ConstraintExpr;
+  effect: "disable" | "hide";
+  force_value?: any;   // written into submitted params whenever this constraint is active
+  reason?: string;       // shown to the user in place of/alongside the description
+}
+```
+
+`when.param` (in any `ConstraintCondition`, at any depth of `all`/`any`/`not` nesting)
+MUST name another property declared in the same `parameter_schema`.
+
+A client SHOULD evaluate every constraint on every property against the *current*
+values of the params it references, and re-evaluate whenever any referenced param's
+value changes. Evaluation MUST be a pure function of current state (not an event
+handler tied to a specific user action) so that the result converges to the same
+outcome regardless of the order in which the user changed things.
+
+- If any *active* constraint on a property has `effect: "hide"`, the client hides
+  that property entirely (same treatment as `x-hidden`/a failing `x-visible-when`).
+- Else if any active constraint has `effect: "disable"`, the client renders the
+  property but makes it non-interactive. If that constraint also declares
+  `force_value`, the client SHOULD write that value into the parameters being
+  submitted for as long as the constraint stays active — this guarantees an invalid
+  combination can never be submitted, even if the user set the value before the
+  constraint became active (e.g. before attaching an image that makes it invalid).
+- `reason`, when present, SHOULD be shown to the user in place of (or alongside) the
+  property's `description` while it is hidden or disabled, so the disabled state is
+  explained rather than merely inert.
+- A client that does not recognize `x-constraints` simply ignores it — like all
+  `x-*` extensions this is additive and MUST be safely ignorable (see
+  [Versioning & Capabilities](#versioning--capabilities)); the provider's own
+  request-time validation remains the source of truth regardless of what the client
+  enforces in its UI.
+
+**Example** — a video tool where audio (`sound`) is only valid without a
+start/end reference frame:
+
+```json
+{
+  "sound": {
+    "type": "boolean",
+    "default": true,
+    "description": "Generate audio aligned with the video",
+    "x-control": "checkbox",
+    "x-constraints": [
+      {
+        "when": { "param": "input_images", "op": "not_empty" },
+        "effect": "disable",
+        "force_value": false,
+        "reason": "Audio is unavailable when using start/end frames"
+      }
+    ]
+  }
+}
+```
+
+The same `ConstraintExpr` grammar is reused for section-level `hidden_when` in the
+[Layout](#layout) schema, for hiding a whole group of settings at once.
 
 **Mask Formats (`x-mask-format`):**
 
@@ -1206,6 +1290,43 @@ When provider needs to shut down:
 - In-flight jobs from previous session are considered failed
 
 ---
+
+## Media Input Formats
+
+Providers vary in the media formats they accept — a cloud model may take only `image/png`/`image/jpeg` and reject WebP, or only `audio/mpeg`/`audio/wav`; a local provider (e.g. ComfyUI) may accept nearly anything. The `x-accept-media` extension lets a media-input parameter declare the MIME types it accepts, so the **host converts an asset to an accepted format only when needed** — and can pick the highest-quality accepted format rather than a lossy lowest common denominator.
+
+### Schema Extension: `x-accept-media`
+
+Set on a media-input property (`x-control` of `image_picker`, `video_picker`, `audio_picker`, or `video_frame_picker`):
+
+```json
+{
+  "input_audios": {
+    "type": "array",
+    "items": { "type": "string" },
+    "x-control": "audio_picker",
+    "x-accept-media": {
+      "mime_types": ["audio/wav", "audio/mpeg"],
+      "transcode_to": "audio/wav",
+      "max_bytes": 104857600
+    }
+  }
+}
+```
+
+Fields:
+- `mime_types` (required): the MIME types the provider accepts for this input.
+- `transcode_to` (optional): the preferred target MIME when conversion is needed. If omitted, the host picks the highest-quality entry in `mime_types`.
+- `max_bytes` (optional): maximum accepted size in bytes.
+
+**Host semantics** (a conformant host MUST):
+- **Absent** → the input is unrestricted; send the source asset unchanged.
+- **Present** → the asset sent to the provider MUST have a MIME type in `mime_types`.
+  - If the source's (content-sniffed) type is already in `mime_types`, send it **unchanged** — no re-encoding.
+  - Otherwise **transcode** to `transcode_to` (or the best entry in `mime_types`). Hosts SHOULD prefer lossless targets (e.g. `audio/wav`, `image/png`) so a lossy source isn't re-compressed a second time.
+  - If the host cannot produce an accepted format, it SHOULD fail with a clear message naming `mime_types` rather than send a rejectable asset.
+
+The host determines the source type by **inspecting the bytes**, not the file extension or a declared content-type (both of which are commonly wrong). This is purely declarative on the provider side — providers never transcode; they only declare what they accept.
 
 ## Tool File Uploads
 
