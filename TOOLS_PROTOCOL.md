@@ -680,6 +680,7 @@ interface LayoutParam {
 | `image-to-image` | Image to Image | Transform/edit existing image |
 | `image-to-video` | Image to Video | Animate an image |
 | `text-to-video` | Generate Video | Create video from text prompt |
+| `video-to-video` | Video to Video | Transform/edit existing video |
 | `video-stitch` | Video Stitch | Combine video segments |
 | `video-extend` | Video Extend | Extend video duration |
 | `lip-sync` | Lip Sync | Drive/resync video from an audio track (audio-conditioned) |
@@ -701,6 +702,9 @@ Tools declare their task types using the `task_types` array. This is useful for 
 
 The descriptor in [Appendix A](#appendix-a-example-tool-descriptor) declares
 `["text-to-image", "image-to-image"]` and switches modes based on whether `input_images` is provided.
+
+For video editing tools, use `video-to-video` with an `input_videos` parameter rendered via
+`x-control: "video_picker"`; the output assets are videos, analogous to `image-to-image` for images.
 
 ### Metadata Fields
 
@@ -1150,7 +1154,8 @@ When a tool declares multiple task types (e.g., `task_types: ["text-to-image", "
 1. The **first** type in the `task_types` array is the **primary/default** mode
 2. If `input_images` has at least one image and the tool supports `image-to-image`, the effective type switches to `image-to-image`
 3. If the tool supports `image-to-video` and its primary type is `text-to-video`, the effective type switches to `image-to-video` when a start frame is provided
-4. Otherwise, the primary task type is used
+4. If `input_videos` has at least one video and the tool supports `video-to-video`, the effective type switches to `video-to-video`
+5. Otherwise, the primary task type is used
 
 Providers MUST handle all task types they declare.
 
