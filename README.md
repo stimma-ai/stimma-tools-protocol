@@ -1,6 +1,6 @@
 # Stimma Tools Protocol (STP)
 
-STP is a JSON-RPC 2.0 protocol for exposing image and video generation tools to
+STP is a JSON-RPC 2.0 protocol for exposing media generation and transformation tools to
 applications, designed to make those tools legible to both software agents and
 human-facing UIs.
 

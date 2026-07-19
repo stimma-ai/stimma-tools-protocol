@@ -1,9 +1,9 @@
 # Stimma Tools Protocol (STP)
 
-**Version:** 1.0-draft6
+**Version:** 1.1-draft1
 **Status:** Draft
 
-A JSON-RPC 2.0 protocol for exposing image/video generation tools to applications, designed to make
+A JSON-RPC 2.0 protocol for exposing media generation and transformation tools to applications, designed to make
 those tools legible to both software agents and human-facing UIs.
 
 ---
@@ -244,14 +244,15 @@ On connect, provider sends `provider.register`:
   "jsonrpc": "2.0",
   "method": "provider.register",
   "params": {
-    "stp_version": "1.0",
+    "stp_version": "1.1",
     "provider_id": "my-comfyui-server",
     "provider_name": "My ComfyUI Server",
     "server": "ComfyUI-Stimma/1.2.3",
     "max_concurrent": 2,
     "asset_endpoint": "/assets",
     "capabilities": {
-      "cancel": true
+      "cancel": true,
+      "parameter_options": true
     }
   },
   "id": 1
@@ -262,7 +263,7 @@ Registration fields:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `stp_version` | yes | Protocol version this provider speaks (e.g. `"1.0"`). Distinct from the provider software version. See [Versioning](#versioning--capabilities). |
+| `stp_version` | yes | Protocol version this provider speaks (e.g. `"1.1"`). Distinct from the provider software version. See [Versioning](#versioning--capabilities). |
 | `provider_id` | yes | Stable identifier for this provider. Unique within a host's configuration; forms the first half of a tool's global address (`{provider_id}:{tool_id}`). |
 | `provider_name` | yes | Human-readable display name (may be user-customized). Display only. |
 | `server` | yes | The provider software's product identity, `Name/Version` (e.g. `"ComfyUI-Stimma/1.2.3"`). Set by the provider implementation, never user-configured. See [`server` format](#server-format) below. |
@@ -301,9 +302,11 @@ The host responds with session info, echoing its own protocol version and capabi
   "jsonrpc": "2.0",
   "result": {
     "session_id": "abc123",
-    "stp_version": "1.0",
+    "stp_version": "1.1",
     "host_version": "1.0.0",
-    "capabilities": {}
+    "capabilities": {
+      "parameter_options": true
+    }
   },
   "id": 1
 }
@@ -363,7 +366,82 @@ Response:
 }
 ```
 
-### 4. Disconnection
+### 4. Dynamic Parameter Options
+
+A tool parameter whose choices live in a large or changing provider catalog MAY declare
+`"x-search-options": true`. This is an options-discovery hint, not a validation constraint. A
+provider serving these catalogs MUST advertise the `parameter_options` capability. A host MUST NOT
+call `tools.search_options` unless the provider advertises that capability.
+
+The mechanism is control-independent: voices, models, style presets, and other opaque string
+catalogs all use the same RPC and option descriptor. A specialized `x-control` changes presentation,
+not discovery or execution semantics.
+
+The host searches a parameter's choices with `tools.search_options`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools.search_options",
+  "params": {
+    "tool_id": "text-to-speech-v3",
+    "parameter": "voice",
+    "query": "warm british",
+    "limit": 50
+  },
+  "id": 4
+}
+```
+
+Request fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `tool_id` | yes | Tool whose parameter catalog is being searched. |
+| `parameter` | yes | Property name in the tool's `parameter_schema`. That property MUST declare `x-search-options: true`. |
+| `query` | no | Provider-defined, case-insensitive search text. Empty or omitted requests initial/recommended choices. |
+| `limit` | no | Maximum results, from 1 through 100. Default `100`. |
+
+The provider responds with option descriptors:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "options": [
+      {
+        "value": "voice_01HXYZ",
+        "label": "Maya — Friendly and Cheerful",
+        "description": "An energetic, conversational English voice.",
+        "category": "Professional",
+        "preview_url": "https://provider.example/previews/voice_01HXYZ.mp3"
+      }
+    ]
+  },
+  "id": 4
+}
+```
+
+Option fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `value` | yes | Opaque string sent as the parameter value during `tools.execute`. |
+| `label` | yes | Human-readable option name. |
+| `description` | no | Short explanatory text for selection UI. |
+| `category` | no | Short grouping or badge text such as `Premade`, `Professional`, or `Community`. |
+| `preview_url` | no | Absolute HTTPS URL for a non-authoritative preview. Hosts MAY ignore or proxy it and MUST NOT attach provider credentials when fetching it. |
+
+The provider MUST reject searches for unknown tools, unknown parameters, or parameters that do not
+declare `x-search-options: true` with JSON-RPC `INVALID_PARAMS` (`-32602`). Results MUST be valid
+values for the named parameter.
+
+`enum` retains its standard JSON Schema meaning and is always exhaustive. Therefore a dynamically
+searchable property whose provider catalog is not closed MUST omit `enum`; a host MUST NOT reject a
+returned option merely because it was not embedded in `tools.list`. Such a property SHOULD provide
+a valid `default` so non-interactive clients can execute it without searching first.
+
+### 5. Disconnection
 
 Either side can disconnect gracefully:
 
@@ -405,6 +483,7 @@ Defined capabilities:
 | Capability | Type | Meaning |
 |------------|------|---------|
 | `cancel` | `bool` | Provider honors `tools.cancel` for queued and in-progress jobs. |
+| `parameter_options` | `bool` | Provider serves `tools.search_options`; host recognizes searchable parameter catalogs. |
 
 Later revisions add optional features as additional keys.
 
@@ -764,6 +843,7 @@ Every schema property MAY declare an `x-control` hint specifying which UI contro
 | `textarea` | `string` | Multi-line plain text input | — |
 | `slider` | `number`, `integer` | Range slider | `x-step`, `minimum`, `maximum` |
 | `dropdown` | `string` | Dropdown/select from `enum` values | `x-enum-labels` for display names |
+| `voice_picker` | `string` | Provider-neutral voice selector with searchable names, descriptions, categories, and optional previews | `x-search-options` |
 | `checkbox` | `boolean` | Toggle checkbox | — |
 | `seed` | `integer` | Random seed with dice/lock controls | — |
 | `image_picker` | `array` of strings | Image upload/selection | `x-min-items`, `x-max-items`, `x-controlnet` |
@@ -785,6 +865,7 @@ If a client encounters an unknown `x-control` value, it SHOULD fall back to a ge
 | `x-label` | Any property | `string` | Display label override (default: auto-generated from field name) |
 | `x-step` | Sliders, resolution | `number` | Step value for numeric inputs |
 | `x-enum-labels` | Dropdowns | `Record<string, string>` | Maps enum values to display labels |
+| `x-search-options` | Strings | `boolean` | Choices are discovered with `tools.search_options`; requires the `parameter_options` capability |
 | `x-format` | Any property | `string` | Display formatting hint (e.g., `"filename"`, `"percent"`) |
 | `x-visible-when` | Any property | `{ param, value }` | Conditional visibility based on another parameter. Equivalent to a single `x-constraints` entry (`effect: "hide"`, an `equals` condition) — new tools SHOULD prefer `x-constraints` (see below). |
 | `x-hidden` | Any property | `boolean` | Hide from UI entirely |
@@ -1046,6 +1127,33 @@ Numeric parameters that only support specific discrete values can declare them w
 }
 ```
 
+**Voice Picker (`x-control: voice_picker`):**
+
+A voice parameter is an opaque string value with provider-neutral presentation metadata. A dynamic
+voice catalog uses `x-control: "voice_picker"` together with `x-search-options: true`; the provider
+returns ordinary option descriptors through `tools.search_options`. The host SHOULD display the
+option label as the selected value, keep descriptions and categories inside the picker, and MAY
+offer playback when `preview_url` is present.
+
+```json
+{
+  "voice": {
+    "type": "string",
+    "default": "voice_01HXYZ",
+    "description": "Voice used for speech synthesis",
+    "x-label": "Voice",
+    "x-control": "voice_picker",
+    "x-search-options": true
+  }
+}
+```
+
+`voice_picker` is not tied to a provider or model vendor. Any speech provider can implement it by
+returning the standard option fields. A finite voice catalog MAY instead use `enum` and
+`x-enum-labels`, just like any other closed string choice. If a host understands dynamic parameter
+options but not this control, it SHOULD use its generic searchable selector. If it understands
+neither extension, it falls back to a string input as required for unknown `x-control` values.
+
 **General Parameter Schema Example:**
 
 ```json
@@ -1230,7 +1338,7 @@ not something any single product does unilaterally in the shared namespace.
 Errors come in two forms, depending on where the failure happens.
 
 **Request errors** — JSON-RPC numeric error codes, returned in the `error` field of a response to a
-request (`provider.register`, `tools.list`, `tools.refresh`, the `tools.execute` acknowledgement,
+request (`provider.register`, `tools.list`, `tools.refresh`, `tools.search_options`, the `tools.execute` acknowledgement,
 `tools.cancel`, `tools.upload*`):
 
 | Code | Message | Meaning |
