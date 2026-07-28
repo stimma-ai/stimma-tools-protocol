@@ -849,7 +849,7 @@ Every schema property MAY declare an `x-control` hint specifying which UI contro
 | `image_picker` | `array` of strings | Image upload/selection | `x-min-items`, `x-max-items`, `x-controlnet` |
 | `video_picker` | `array` of strings | Video upload/selection | `x-min-items`, `x-max-items` |
 | `video_frame_picker` | `array` of strings | Start/end frame picker for image-to-video | `x-min-items`, `x-max-items` |
-| `audio_picker` | `array` of strings | Audio upload/selection (audio-conditioned tools, e.g. lip-sync) | `x-min-items`, `x-max-items` |
+| `audio_picker` | `array` of strings | Audio upload/selection (audio-conditioned tools, e.g. lip-sync) | `x-min-items`, `x-max-items`, `x-audio-role` |
 | `mask_editor` | `string` | Mask painting editor | `x-source-field`, `x-mask-format` |
 | `resolution` | `integer` | Linked resolution field (see Resolution Picker) | `x-paired-with`, `x-step` |
 | `upscale_resolution` | `number` or `integer` | Upscale scale factor / target resolution picker | `x-step` |
@@ -1241,7 +1241,7 @@ use any names.
 | `prompt` | Rich text editor (`prompt_editor`) | The `description` property is used as placeholder text |
 | `input_images` | Media picker with drag-drop | Use `x-min-items`/`x-max-items` for count constraints |
 | `input_videos` | Video picker | Same as above |
-| `input_audios` | Audio picker | Audio-conditioned tools (lip-sync); `x-min-items`/`x-max-items` for count |
+| `input_audios` | Audio picker | Audio-conditioned tools (lip-sync); `x-min-items`/`x-max-items` for count; `x-audio-role` for how the clip is used |
 | `mask` | Mask painting editor | Requires `x-source-field` pointing to the source image |
 | `width` + `height` | Linked resolution picker | See Resolution Picker section |
 | `aspect_ratio` | Aspect ratio selector | When an `enum` is provided (e.g. `["1:1", "16:9"]`), a client SHOULD show a visual ratio picker. |
@@ -1440,6 +1440,28 @@ Fields:
   - If the host cannot produce an accepted format, it SHOULD fail with a clear message naming `mime_types` rather than send a rejectable asset.
 
 The host determines the source type by **inspecting the bytes**, not the file extension or a declared content-type (both of which are commonly wrong). This is purely declarative on the provider side — providers never transcode; they only declare what they accept.
+
+### Schema Extension: `x-audio-role`
+
+An `audio_picker` input can say what the clip is *for*. Two tools both take one audio file and produce one video, but they use it in opposite ways, and a host that treats them alike gets the user's prompt wrong:
+
+```json
+{
+  "input_audios": {
+    "type": "array",
+    "items": { "type": "string" },
+    "x-control": "audio_picker",
+    "x-audio-role": "reference"
+  }
+}
+```
+
+| Value | Meaning |
+|-------|---------|
+| `driving` (default) | The output reproduces this track. Its content and timing are fixed — lip-sync, audio-driven avatars, image+audio-to-video. |
+| `reference` | The clip only steers audio the tool still generates — e.g. a voice sample for speaker identity. The output is not this recording. |
+
+**Host semantics**: absent means `driving`. A host that adapts prompt guidance to the audio (telling a prompt model that the soundtrack is fixed, so it should describe the picture rather than invent sound design) MUST apply that only to `driving` inputs — with a `reference` clip the tool still writes its own audio, and the user's description of it still matters.
 
 ## Tool File Uploads
 
