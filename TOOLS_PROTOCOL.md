@@ -767,6 +767,7 @@ interface LayoutParam {
 | `upscale-video` | Upscale Video | Increase video resolution |
 | `inpaint-image` | Inpaint | Fill masked region of image |
 | `remove-background` | Background Removal | Remove image background |
+| `process-image` | Process Image | Promptless full-image processing (restore, denoise, colorize); image in, image out at the same dimensions |
 
 An application MAY act on a recognized task type, but SHOULD handle unrecognized task types generically.
 
