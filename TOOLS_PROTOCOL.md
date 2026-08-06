@@ -758,6 +758,7 @@ interface LayoutParam {
 | `text-to-image` | Generate Image | Create image from text prompt |
 | `image-to-image` | Image to Image | Transform/edit existing image |
 | `image-to-video` | Image to Video | Animate an image |
+| `reference-to-video` | Reference to Video | Generate video from one or more image, video, or audio references |
 | `text-to-video` | Generate Video | Create video from text prompt |
 | `video-to-video` | Video to Video | Transform/edit existing video |
 | `video-stitch` | Video Stitch | Combine video segments |
@@ -1242,6 +1243,7 @@ use any names.
 | `prompt` | Rich text editor (`prompt_editor`) | The `description` property is used as placeholder text |
 | `input_images` | Media picker with drag-drop | Use `x-min-items`/`x-max-items` for count constraints |
 | `input_videos` | Video picker | Same as above |
+| `input_audios` | Audio picker | Same as above |
 | `input_audios` | Audio picker | Audio-conditioned tools (lip-sync); `x-min-items`/`x-max-items` for count; `x-audio-role` for how the clip is used |
 | `mask` | Mask painting editor | Requires `x-source-field` pointing to the source image |
 | `width` + `height` | Linked resolution picker | See Resolution Picker section |
