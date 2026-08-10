@@ -555,6 +555,13 @@ The host sends `tools.execute`:
 }
 ```
 
+Optional top-level params (siblings of `parameters`, never inside it, so they
+can never collide with a tool's own schema):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `preview_frames` | `true` | Whether the host wants in-flight `preview` frames on `tools.progress` for THIS execution. A provider that can produce previews SHOULD skip that work entirely when this is `false` — the cost is usually per sampling step. Sent per request rather than negotiated at registration so a host-side setting takes effect on the next job without a reconnect. |
+
 Provider acknowledges immediately (job is queued):
 
 ```json
@@ -584,6 +591,35 @@ Provider sends progress updates as notifications (no `id`):
 
 Fields:
 - `progress`: 0.0 to 1.0
+- `preview` (optional): an in-flight preview frame for this job — the partially
+  formed output, for hosts that show generation progress visually.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools.progress",
+  "params": {
+    "request_id": "job-456",
+    "progress": 0.5,
+    "preview": { "mime": "image/jpeg", "data": "<base64>" }
+  }
+}
+```
+
+`preview` fields:
+- `mime`: media type of `data` (e.g. `image/jpeg`, `image/png`, `image/webp`).
+  An animated `image/webp` is a valid preview for a video job.
+- `data`: base64 of the encoded frame.
+
+Preview frames are the one place binary rides inline rather than through the
+asset channel: they are transient, discarded on arrival, and arrive several
+times per job, so an out-of-band PUT/GET per frame would cost more than it
+saves. Keep them small — a few hundred KB at most — and coalesce them at the
+same rate as `tools.progress` itself.
+
+A host that does not understand `preview` ignores it, as with any unknown
+field. A provider SHOULD omit it entirely when it has no frame, and MUST NOT
+depend on the host consuming it.
 
 ### Result Notification
 
