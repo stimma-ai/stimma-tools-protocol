@@ -250,9 +250,14 @@ On connect, provider sends `provider.register`:
     "server": "ComfyUI-Stimma/1.2.3",
     "max_concurrent": 2,
     "asset_endpoint": "/assets",
+    "presentation": {
+      "icon": "data:image/svg+xml;base64,...",
+      "management_url": "/stp-v1/manage/"
+    },
     "capabilities": {
       "cancel": true,
-      "parameter_options": true
+      "parameter_options": true,
+      "tool_status": true
     }
   },
   "id": 1
@@ -270,6 +275,22 @@ Registration fields:
 | `max_concurrent` | no | Provider-wide concurrency limit (default `1`). |
 | `asset_endpoint` | no | Where the host uploads/downloads assets (see below). Omitted for stdio. |
 | `capabilities` | no | Optional features this provider supports beyond the baseline. A provider that omits `capabilities` supports only the baseline. See [Versioning](#versioning--capabilities). |
+| `presentation` | no | How the host may present this provider: an icon and/or a management UI. See [`presentation`](#presentation) below. |
+
+#### `presentation`
+
+`presentation` lets a provider supply its own icon and point at a management UI it hosts.
+Both keys are optional; hosts ignore keys they don't understand.
+
+| Key | Description |
+|-----|-------------|
+| `icon` | A `data:` URI (SVG or PNG, ≤ 32 KiB) the host may show wherever it labels this provider. Hosts SHOULD fall back to their own iconography when absent or malformed. |
+| `management_url` | URL of a web UI the provider serves for administering itself (setup, status, downloads, …). The host MAY embed or link to it. A **relative** URL (e.g. `/stp-v1/manage/`) is resolved against the origin the host actually connected to — providers MUST NOT substitute their own idea of their address (a server's view of its IP is often wrong from the client's side: NAT, tunnels, overlay networks). An **absolute** URL is used as-is and is meant for genuinely external consoles. Omitted for stdio transports unless absolute. |
+
+The host resolves `management_url` the same way it resolves `asset_endpoint`. Anything the host
+learns about the provider through that UI is out of scope for this protocol; the manager is the
+provider's own surface. What *does* travel over STP is small, generic state — see
+[Provider State](#provider-state) and [Tool Status](#tool-status).
 
 #### `server` format
 
@@ -305,7 +326,8 @@ The host responds with session info, echoing its own protocol version and capabi
     "stp_version": "1.1",
     "host_version": "1.0.0",
     "capabilities": {
-      "parameter_options": true
+      "parameter_options": true,
+      "tool_status": true
     }
   },
   "id": 1
@@ -484,12 +506,108 @@ Defined capabilities:
 |------------|------|---------|
 | `cancel` | `bool` | Provider honors `tools.cancel` for queued and in-progress jobs. |
 | `parameter_options` | `bool` | Provider serves `tools.search_options`; host recognizes searchable parameter catalogs. |
+| `tool_status` | `bool` | Host: understands `status` / `status_items` on tool descriptors and wants tools that are not ready to be listed too. Provider: emits them. See [Tool Status](#tool-status). |
+| `provider_state` | `bool` | Provider emits `provider.state` and `provider.notify` notifications. See [Provider State](#provider-state). |
 
 Later revisions add optional features as additional keys.
 
 **Vendor-specific capabilities** use the `x-<vendor>-<feature>` convention (see [Extensions and
 Vendor Namespacing](#extensions-and-vendor-namespacing)) and MUST be ignorable by peers that don't
 recognize them.
+
+---
+
+## Provider State
+
+A provider that advertises the `provider_state` capability keeps the host informed of its overall
+health with a `provider.state` notification, sent right after registration and whenever the state
+changes:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "provider.state",
+  "params": {
+    "state": "warning",
+    "summary": "1 of 2 instances unreachable"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `state` | `"ready"` — operating normally. `"warning"` — degraded but working (some backing capacity down, an operation failed, a restart is pending). `"error"` — the provider cannot do useful work. |
+| `summary` | Optional one-line, human-readable, user-facing summary. Details belong in the provider's management UI, not here. |
+
+Missing dependencies for individual tools are **not** a provider-level warning; those are per-tool
+([Tool Status](#tool-status)). Hosts typically surface `state` as a small indicator next to the
+provider's icon and route the click to `management_url`.
+
+### `provider.notify`
+
+Milestone notifications the host MAY show to the user (as a toast or similar). Bounded on purpose:
+downloads finished or failed, tools became available, a restart is needed, an update is available.
+Never streaming progress — progress lives in the management UI.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "provider.notify",
+  "params": {
+    "id": "workflow-ready:ltx-2.3-i2v",
+    "level": "info",
+    "title": "LTX 2.3 image to video is ready",
+    "body": "Downloads finished and verified.",
+    "action": "manage",
+    "anchor": "activity"
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `id` | Stable identifier; hosts dedupe on it (a repeat replaces the earlier notification). |
+| `level` | `"info"`, `"warning"`, or `"error"`. |
+| `title` | Short user-facing text. |
+| `body` | Optional second line. |
+| `action` | Optional. `"manage"` — the host offers a way to open `management_url`. |
+| `anchor` | Optional opaque fragment the host appends to `management_url` when it opens it because of this notification (e.g. a tab name). |
+
+Hosts MUST NOT execute anything on the strength of a notification; it is display-only.
+
+## Tool Status
+
+Providers normally list only tools that can run. When the **host** advertises the `tool_status`
+capability, a provider MAY also list tools that exist but are not ready — because model files or
+dependencies are missing — so the host can reflect that in its own UI. Each descriptor then
+carries:
+
+```json
+{
+  "id": "ltx-2.3-i2v",
+  "name": "LTX 2.3 image to video",
+  "status": "needs_setup",
+  "status_items": [
+    {"kind": "missing_model", "name": "ltx-2.3-22b-dev-fp8.safetensors", "detail": "diffusion_models"},
+    {"kind": "missing_node", "name": "LTXVPreprocess", "detail": "ComfyUI-LTXVideo"}
+  ],
+  ...
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `"ready"` (default when absent) or `"needs_setup"`. |
+| `status_items` | Present when `needs_setup`. Each item: `kind` ∈ `missing_model`, `missing_node`, `other`; `name` — the missing thing; `detail` — optional short context. |
+
+Rules:
+
+- A host that did **not** advertise `tool_status` MUST NOT receive `needs_setup` tools at all
+  (baseline behavior: omit them).
+- Hosts MUST NOT execute a `needs_setup` tool and SHOULD keep such tools out of any picker where the
+  user chooses what to run. How (or whether) they are shown otherwise is a host decision; a
+  reasonable host shows nothing and lets the provider's management UI handle setup.
+- When a tool becomes ready the provider sends `tools.changed` as usual.
 
 ---
 
