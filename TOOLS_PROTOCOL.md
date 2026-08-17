@@ -538,11 +538,25 @@ changes:
 |-------|-------------|
 | `state` | `"ready"` — operating normally. `"in_progress"` — user-initiated management work such as a download, install, or setup is underway. `"warning"` — degraded but working (some backing capacity down, an operation failed, a restart is pending). `"error"` — the provider cannot do useful work. |
 | `summary` | Optional one-line, human-readable, user-facing summary. Details belong in the provider's management UI, not here. |
+| `attention` | Optional persistent, non-health attention state. `"update_available"` means the provider itself can be updated. Hosts MAY show a lightweight indicator that remains until a later `provider.state` omits `attention`. Unknown values MUST be ignored. |
 
 Missing dependencies for individual tools are **not** a provider-level warning; those are per-tool
 ([Tool Status](#tool-status)). Hosts typically surface `state` as a small indicator next to the
 provider's icon and route the click to `management_url`. Hosts SHOULD animate the indicator for
 `in_progress` so long-running management work remains visible outside the management UI.
+`attention` is independent of `state`: an otherwise healthy provider can send `state: "ready"`
+with `attention: "update_available"`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "provider.state",
+  "params": {
+    "state": "ready",
+    "attention": "update_available"
+  }
+}
+```
 
 ### `provider.notify`
 
