@@ -1211,6 +1211,19 @@ read-only analysis tools, or inpaint (which uses `mask_editor` instead).
 
 **Resolution Picker (`x-control: resolution`, `x-paired-with`):**
 
+Providers MAY set `x-resolution-slider-max-pixels` to a positive integer on
+the width field to give the normal size slider an area ceiling, in pixels.
+For example, `4194304` offers a 4 MP slider when the client labels 1024² pixels
+as 1 MP, while width/height may each still accept up to 4096 pixels. This hint
+is presentation only: it MUST NOT reject or clamp custom dimensions, reference
+image sizes, or execution requests. Clients SHOULD retain exact dimension entry
+above this normal range, label such values as custom, and keep the slider scale
+unchanged. Actual per-axis bounds, steps, and allowed pairs remain authoritative.
+The slider ceiling is the smaller of this hint and the achievable area at the
+selected aspect ratio. Without the hint, clients retain their existing behavior.
+Fixed-pair resolution controls are unaffected. Unknown hints can be ignored by
+older clients.
+
 When two fields both declare `x-control: "resolution"` and use `x-paired-with` to reference each other, a client SHOULD render them as a linked 2D resolution picker (e.g. a grid of common aspect ratios).
 
 ```json
