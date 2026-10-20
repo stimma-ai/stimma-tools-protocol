@@ -965,6 +965,7 @@ The `metadata` object is freeform. The following keys are standard; hosts SHOULD
 | `description` | `string` | Tool description shown in the All Tools page. Used as `subtitle` fallback if `subtitle` is not set at the top level. |
 | `display_price` | `string` | Price string shown in tool cards (e.g., `"$0.03/megapixel"`, `"$0.05/second"`). |
 | `badges` | `string[]` | Badge labels shown as pills in tool cards. Use standard labels for consistent styling (see below). |
+| `instructions` | `string` | Guidance for an AI agent calling the tool: how inputs map to roles, what order list inputs take, how to chain calls. Hosts SHOULD show it to agents alongside the tool's parameters and SHOULD NOT show it in tool UI. Per-parameter guidance belongs in that parameter's JSON Schema `description`. |
 
 > **Note:** The former advisory `model_family` metadata key has been removed. Use the top-level `model` field (and `model_vendor`) on the descriptor instead.
 
