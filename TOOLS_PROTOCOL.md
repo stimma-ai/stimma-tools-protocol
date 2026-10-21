@@ -1026,6 +1026,7 @@ Every schema property MAY declare an `x-control` hint specifying which UI contro
 | `resolution` | `integer` | Linked resolution field (see Resolution Picker) | `x-paired-with`, `x-step` |
 | `upscale_resolution` | `number` or `integer` | Upscale scale factor / target resolution picker | `x-step` |
 | `lora_picker` | `array` of objects | LoRA pool picker — array of `{path, weight}` with an `enum` on `path` | — |
+| `keyframes` | `array` of objects | Stills or short clips pinned at times on a video tool's output (see Keyframes) | `x-max-items`, `x-positions`, `x-timeline`, `x-clip-frames` |
 
 If a client encounters an unknown `x-control` value, it SHOULD fall back to a generic input appropriate for the schema type (text input for strings, number input for numbers, etc.).
 
@@ -1053,6 +1054,7 @@ If a client encounters an unknown `x-control` value, it SHOULD fall back to a ge
 | `x-max-items` | Arrays | `number` | Maximum items for media inputs |
 | `x-accept-upload` | `string` with `enum` | `object` | Declares file upload capability (see Tool File Uploads) |
 | `x-accept-media` | Media inputs | `object` | Declares the MIME types a media input accepts (see Media Input Formats) |
+| `x-media` | Any `string` property, at any depth | `string` or `string[]` | Marks a media input nested inside a structured parameter (see Media Input Formats) |
 
 **Parameter Constraints (`x-constraints`):**
 
@@ -1311,6 +1313,55 @@ Numeric parameters that only support specific discrete values can declare them w
   }
 }
 ```
+
+**Keyframes (`x-control: keyframes`):**
+
+A video tool can let the user pin stills or short clips at exact times on its output — a first
+frame, a last frame, a pose to hit mid-shot, or the tail of an earlier take (with its sound) to
+continue from. The parameter is an array of objects; each item's `media` is a nested media input
+(`x-media`), so hosts upload and resolve it like any other media.
+
+```json
+"keyframes": {
+  "type": "array",
+  "x-control": "keyframes",
+  "x-max-items": 6,
+  "x-positions": "any",
+  "x-timeline": { "duration": "duration", "fps": 24 },
+  "x-clip-frames": { "min": 5, "step": 17 },
+  "items": {
+    "type": "object",
+    "required": ["media", "at"],
+    "properties": {
+      "media":  { "type": "string", "x-media": ["image", "video"] },
+      "at":     { "type": "number" },
+      "from":   { "type": "number", "minimum": 0 },
+      "length": { "type": "number", "minimum": 0 },
+      "sound":  { "type": "boolean" }
+    }
+  }
+}
+```
+
+| Item field | Meaning |
+|------------|---------|
+| `media` | A still image, or a video to take a frame or clip from. |
+| `at` | Seconds into the output where the keyframe lands. Negative counts back from the end. A still at `at` equal to the requested duration is the last frame. |
+| `from` | For a video: the second to take the frame or clip from (default `0`). |
+| `length` | Clip length in seconds. Absent pins a single frame. Declared only when the tool takes clips. |
+| `sound` | Pin the clip's sound with its picture. Declared only when the tool can. |
+
+| Hint | Meaning |
+|------|---------|
+| `x-positions` | `"any"` (default) or `"ends"`, which restricts pins to the first and last frame. |
+| `x-timeline` | `duration`: the parameter whose value is the timeline's length in seconds; `fps`: the output frame rate. |
+| `x-clip-frames` | Valid clip lengths in frames are `min + k * step`. Absent means stills only. |
+
+Capabilities come from the item schema: a tool that cannot pin audio omits `sound`; a tool with a
+per-keyframe setting (e.g. a guide strength) adds it as another item property, which a host SHOULD
+render with its ordinary controls. Hosts SHOULD present keyframes on a timeline the length of the
+`x-timeline.duration` parameter, and SHOULD treat images that are only pinned as distinct from
+reference images unless the user also supplies them as references.
 
 **Voice Picker (`x-control: voice_picker`):**
 
@@ -1626,6 +1677,18 @@ Fields:
   - If the host cannot produce an accepted format, it SHOULD fail with a clear message naming `mime_types` rather than send a rejectable asset.
 
 The host determines the source type by **inspecting the bytes**, not the file extension or a declared content-type (both of which are commonly wrong). This is purely declarative on the provider side — providers never transcode; they only declare what they accept.
+
+### Schema Extension: `x-media`
+
+Media can sit inside a structured parameter — e.g. `keyframes[].media`. Mark any `string`
+property, at any depth (array `items`, object `properties`), with `x-media` naming the media kinds
+it takes: `"image"`, `"video"`, `"audio"`, or a list of them. A conformant host MUST treat each such
+value exactly like a top-level media input: upload it as an asset, apply `x-accept-media` declared
+on the same property, and resolve library references. Top-level pickers (`x-control:
+image_picker`, …) don't need `x-media`.
+
+A host given a video for a property whose only kind is `"audio"` (or an `audio_picker`) SHOULD
+send the video's soundtrack, converted per `x-accept-media` (default `audio/wav`).
 
 ### Schema Extension: `x-audio-role`
 
