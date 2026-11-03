@@ -509,12 +509,74 @@ Defined capabilities:
 | `tool_status` | `bool` | Host: understands `status` / `status_items` on tool descriptors and wants tools that are not ready to be listed too. Provider: emits them. See [Tool Status](#tool-status). |
 | `provider_state` | `bool` | Provider emits `provider.state` and `provider.notify` notifications. See [Provider State](#provider-state). |
 | `media_sidecars` | `bool` | Peer preserves typed companion files attached to media outputs and accepts the `input_sidecars` execution envelope. Format support is declared per tool input. |
+| `file_fingerprints` | `bool` | Provider serves `tools.file_fingerprints`. See [File Fingerprints](#file-fingerprints). |
 
 Later revisions add optional features as additional keys.
 
 **Vendor-specific capabilities** use the `x-<vendor>-<feature>` convention (see [Extensions and
 Vendor Namespacing](#extensions-and-vendor-namespacing)) and MUST be ignorable by peers that don't
 recognize them.
+
+---
+
+## File Fingerprints
+
+A provider that advertises the `file_fingerprints` capability can identify the file behind a
+catalog value by its content. A host can attach its own data to a fingerprint, such as user notes
+about a LoRA, and keep it when the file is moved or renamed. A host MUST NOT call this method unless
+the capability is advertised, and MUST treat an absent or null fingerprint as "no identity".
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools.file_fingerprints",
+  "params": { "tool_id": "flux-dev", "parameter": "loras" },
+  "id": 9
+}
+```
+
+`parameter` names an array-of-objects property whose `items.properties.path` has an `enum`. An unknown
+tool or parameter is `INVALID_PARAMS` (`-32602`).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "fingerprints": {
+      "flux/style_v1.safetensors": "stfp1:0f6d2c5ab1e94c7d8a3f10b26e57c941",
+      "flux/new_upload.safetensors": null
+    },
+    "pending": 1
+  },
+  "id": 9
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `fingerprints` | One entry per enum value. Null means the value has no fingerprint, or doesn't have one yet. |
+| `pending` | How many files are still being fingerprinted. A host MAY ask again while it is above zero. |
+
+The provider MUST answer without waiting for files to be read, computing fingerprints in the background.
+
+### `stfp1`
+
+Hosts compare fingerprints across providers, so providers MUST use this algorithm for `.safetensors`
+files and return null for files it doesn't cover:
+
+1. Read the 8-byte little-endian header length `h`. The data section starts at `s = 8 + h` and has
+   `n = file_size - s` bytes. If the file is shorter than 8 bytes or `n <= 0`, the fingerprint is null.
+2. Start a SHA-256 with `n` as a little-endian unsigned 64-bit integer.
+3. If `n <= 1048576`, add the whole data section. Otherwise add four 262144-byte chunks at offsets
+   `s + ((n - 262144) * i) // 3` for `i` in `0..3`.
+4. The fingerprint is `stfp1:` followed by the first 32 hex characters of the digest.
+
+The header isn't hashed, so editing a file's metadata keeps its identity. Fingerprints identify files
+for convenience and aren't a security boundary: the sampling means different files could match.
+
+A value backed by a high-noise and a low-noise file (`x-paired`) is `stfp1p:` followed by the first
+32 hex characters of the SHA-256 of the two member fingerprints, sorted and joined with `\n`. It is
+null if either member is null.
 
 ---
 
