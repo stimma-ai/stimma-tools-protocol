@@ -508,6 +508,7 @@ Defined capabilities:
 | `parameter_options` | `bool` | Provider serves `tools.search_options`; host recognizes searchable parameter catalogs. |
 | `tool_status` | `bool` | Host: understands `status` / `status_items` on tool descriptors and wants tools that are not ready to be listed too. Provider: emits them. See [Tool Status](#tool-status). |
 | `provider_state` | `bool` | Provider emits `provider.state` and `provider.notify` notifications. See [Provider State](#provider-state). |
+| `media_sidecars` | `bool` | Peer preserves typed companion files attached to media outputs and accepts the `input_sidecars` execution envelope. Format support is declared per tool input. |
 
 Later revisions add optional features as additional keys.
 
@@ -1541,6 +1542,71 @@ like `generation_time`, `actual_seed`, etc.
 ---
 
 ## Extensions and Vendor Namespacing
+
+### Media sidecars
+
+When both peers advertise `media_sidecars`, each `output.assets[]` item may carry
+`sidecars: [...]`. These companions belong to that exact rendered media payload;
+they are not independent browser outputs. Asset transfer is unchanged.
+
+A companion has an opaque `format` string, integer `format_version`, `asset_id`,
+and optional `mime_type`, `sha256`, `byte_size`, `display_label`, `descriptor`
+(an opaque JSON object), and `media_mapping`. Formats are open identifiers, not
+an enum. Containers, tensor layouts, compatibility rules and interpretation of
+`descriptor` are owned by the producing/consuming adapter. Hosts must not infer
+them from filenames, model names or tensor shapes. Unknown formats can be stored
+and transported without being understood.
+
+For temporal companions, `media_mapping` carries version 1 media-time coverage:
+
+```json
+{
+  "version": 1,
+  "media_time_base": {"num": 1, "den": 24},
+  "source_time_base": {"num": 1, "den": 24},
+  "source_extent": [0, 158],
+  "spans": [{
+    "media": [600, 719],
+    "source": [39, 158],
+    "preserved_streams": ["video", "audio"]
+  }]
+}
+```
+
+Ranges are integer, half-open ticks in explicit rational time bases. Each span
+maps current rendered media to original rendered-media coordinates associated
+with this companion. Version 1 requires equal-duration, rate-preserving spans.
+Missing streams are not preserved. The mapping and direct payload reference must
+remain usable after original media records are deleted. This describes edits,
+not native token/tensor offsets: the consumer decides which mapped intervals
+its format can actually use. A temporal companion without valid mapping is
+ineligible. Frame-accurate trim/concat may compose mappings; changes to pixels,
+timing or sound invalidate affected coverage unless explicitly supported.
+
+Tools advertise accepted formats using `x-accept-sidecars` on the relevant media
+schema leaf, including nested `x-media` leaves:
+`[{"format": "example.motion_state", "format_version": 1}]`.
+This is a transfer filter, not a promise of native compatibility. The host sends
+matching companions in optional `tools.execute.params.input_sidecars`, a map
+from each primary media reference **as transmitted** to its companion list.
+Tool parameters remain unchanged. SDKs preserve the complete envelope through
+queued jobs and expose it in execution context. Mixed ordinary and companion-backed
+media references work in one call. The rendered source remains available for fallback.
+
+Companion entries on input default to `status: "available"` and require `asset_id`.
+An optional companion that fails local read, integrity, upload or lookup instead
+has `status: "unavailable"`, an `unavailable_reason` code and no usable asset ID.
+Keep its format/mapping identity and diagnostics through execution/provenance.
+Individual companion failures must leave a healthy rendered fallback usable;
+primary media, execution connection and unrelated runtime failures remain errors.
+Format validation/fallback belongs to the consumer, generic I/O failure handling
+to the layer performing that operation. No additional user-facing tool argument
+is needed to select a companion.
+
+Without bilateral support, providers return ordinary renders and hosts send
+ordinary media references only. Do not upload unreachable companions to old
+hosts. Local download manifests must retain associations, mappings and opaque
+descriptors with portable relative filenames so later input reuse is possible.
 
 STP is an opinionated, domain-specific protocol: the core vocabulary (task types, UI control hints,
 capabilities, error codes) is *part of the standard* so tools stay legible to both agents and humans
